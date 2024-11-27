@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: expense
+  labels:
+    tier: web
+spec:
+  progressDeadlineSeconds: 600
+  replicas: {{ .Values.deployment.replicas }}
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: frontend
+      tier: web
+      project: expense
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  template:
+    metadata:
+      labels:
+        app: frontend
+        tier: web
+        project: expense
+    spec:
+      # affinity:
+      #   podAntiAffinity:
+      #     preferredDuringSchedulingIgnoredDuringExecution:
+      #     - podAffinityTerm:
+      #         labelSelector:
+      #           matchExpressions:
+      #           - key: app
+      #             operator: In
+      #             values:
+      #             - frontend
+      #         topologyKey: kubernetes.io/hostname
+      #       weight: 100  
+      serviceAccount: frontend
+      serviceAccountName: frontend
+      terminationGracePeriodSeconds: 10
+
+      containers:
+      - name: frontend
+        image: srikanthhg/frontend:{{ .Values.deployment.imageVersion }}
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: backend
+        resources:
+          requests:
+            cpu:  100m
+            memory: 128Mi
+          # limits is greater than or equal to requests
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 3
+        # securityContext:
+        #   allowPrivilegeEscalation: false
+        #   readOnlyRootFilesystem: true
+        #   fsGroup: 999
+        #   runAsGroup: 999
+        #   runAsNonRoot: true
+        #   runAsUser: 999
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - name: nginx-conf
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf # This ensures that only the specific file (nginx.conf) from the ConfigMap is mounted at the specified path. or Ensures that only the file nginx.conf is mounted, rather than the entire ConfigMap.
+          readOnly: true # This ensures the file mounted from the ConfigMap is read-only and cannot be modified by the container.
+      volumes:
+      - name: nginx-conf
+        configMap:
+          name: frontend
+          items:
+          - key: nginx.conf # This is the key in the ConfigMap.
+            path: nginx.conf # This is the path (file name) that will be used inside the container.
+      restartPolicy: Always

@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: expense
+  labels:
+    tier: database
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady # only for statefulset- pods are started in a specific order and only proceed to the next pod once the previous one is fully ready.
+  replicas: 2
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: mysql
+      tier: db
+      project: expense # has to match .spec.template.metadata.labels
+  serviceName: "mysql"
+  template:
+    metadata:
+      labels:
+        app: mysql
+        tier: db 
+        project: expense # has to match .spec.selector.matchLabels
+    spec:
+      # affinity:
+      #   podAntiAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #     - labelSelector:
+      #         matchExpressions:
+      #         - key: app
+      #           operator: In
+      #           values:
+      #           - mysql
+      #       topologyKey: kubernetes.io/hostname
+      serviceAccount: database
+      serviceAccountName: database
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: mysql
+        image: srikanthhg/mysql:{{ .Values.statefulset.imageVersion }}
+        imagePullPolicy: IfNotPresent
+
+        # env:
+        # - name: MYSQL_ROOT_PASSWORD # This is the name of the environment variable in linux machine
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: mysql  # This is the name of the secret
+        #       key: MYSQL_ROOT_PASSWORD   # This is the key in the secret   ---working good
+
+        # envFrom:
+        #   - secretRef:
+        #       name: mysql       #name of the secret   ---working good
+
+        readinessProbe:
+          tcpSocket:
+            port: 3306
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          tcpSocket:
+            port: 3306
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          successThreshold: 1
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        # securityContext:
+        #   allowPrivilegeEscalation: false
+        #   capabilities:
+        #     drop:
+        #       - ALL
+        #   privileged: false
+        #   readOnlyRootFilesystem: true
+        #   fsGroup: 999
+        #   runAsGroup: 999
+        #   runAsNonRoot: true
+        #   runAsUser: 999  # MySQL typically runs under UID 999 (adjust if needed)
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        command:
+          - "sh"
+          - "-c"
+          - |
+            # Ensure that the root password is read from the file
+            # We're overriding the default entrypoint (/entrypoint.sh mysqld) to ensure MySQL uses the root password from the mounted file.
+            export MYSQL_ROOT_PASSWORD=$(cat /etc/mysql-secret/MYSQL_ROOT_PASSWORD) && exec /entrypoint.sh mysqld
+        volumeMounts:
+        - name: mysql-secret-volume
+          mountPath: "/etc/mysql-secret"
+          readOnly: true
+        # - name: mysql-data
+        #   mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-secret-volume
+        secret:
+          secretName: mysql # Provide the name of the secret you want to mount. 
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0 # Controls the number of pods that will not be updated during the rolling update
+
+  # volumeClaimTemplates:
+  # - metadata:
+  #     name: mysql-data
+  #   spec:
+  #     accessModes: [ "ReadWriteOnce" ]
+  #     storageClassName: ebs-sc
+  #     resources:
+  #       requests:
+  #         storage: 1Gi
