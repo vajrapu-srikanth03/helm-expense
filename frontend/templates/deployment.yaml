@@ -48,7 +48,7 @@ spec:
         imagePullPolicy: IfNotPresent
         envFrom:
         - configMapRef:
-            name: backend
+            name: frontend
         resources:
           requests:
             cpu:  100m
